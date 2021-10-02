@@ -65,6 +65,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.Base64;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -126,8 +127,7 @@ public class OIDCAccessResource extends AccessResource {
         }
 
         // generate the authorization uri
-        URI authorizationURI = oidcRequestAuthorizationCode(httpServletResponse, getOidcCallback());
-
+        URI authorizationURI = oidcRequestAuthorizationCode(httpServletResponse, getOidcCallback(), httpServletRequest.getQueryString());
         // generate the response
         httpServletResponse.sendRedirect(authorizationURI.toString());
     }
@@ -175,9 +175,13 @@ public class OIDCAccessResource extends AccessResource {
             }
 
             // redirect to the name page
-            httpServletResponse.sendRedirect(getNiFiUri());
-        } else {
-            // remove the oidc request cookie
+            if (successfulOidcResponse.getState().getValue().contains(".")) {
+                String redirectPagePathBase64 = successfulOidcResponse.getState().getValue().substring(successfulOidcResponse.getState().getValue().lastIndexOf(".") + 1);
+                httpServletResponse.sendRedirect(getNiFiUri() + new String(Base64.getDecoder().decode(redirectPagePathBase64)));
+            } else {
+                httpServletResponse.sendRedirect(getNiFiUri());
+            }
+
             removeOidcRequestCookie(httpServletResponse);
 
             // report the unsuccessful login
@@ -259,7 +263,7 @@ public class OIDCAccessResource extends AccessResource {
             case REVOKE_ACCESS_TOKEN_LOGOUT:
             case ID_TOKEN_LOGOUT:
                 // Make a request to the IdP
-                URI authorizationURI = oidcRequestAuthorizationCode(httpServletResponse, getOidcLogoutCallback());
+                URI authorizationURI = oidcRequestAuthorizationCode(httpServletResponse, getOidcLogoutCallback(), "");
                 httpServletResponse.sendRedirect(authorizationURI.toString());
                 break;
             case STANDARD_LOGOUT:
@@ -402,15 +406,20 @@ public class OIDCAccessResource extends AccessResource {
      * @param callback the OIDC callback URI
      * @return the authorization URI
      */
-    private URI oidcRequestAuthorizationCode(@Context HttpServletResponse httpServletResponse, String callback) {
+    private URI oidcRequestAuthorizationCode(@Context HttpServletResponse httpServletResponse, String callback, String uri) {
         final String oidcRequestIdentifier = UUID.randomUUID().toString();
         applicationCookieService.addCookie(getCookieResourceUri(), httpServletResponse, ApplicationCookieName.OIDC_REQUEST_IDENTIFIER, oidcRequestIdentifier);
         final State state = oidcService.createState(oidcRequestIdentifier);
+
+        if (uri.startsWith("/")) {
+            uri = uri.substring(1);
+        }
+
         return UriBuilder.fromUri(oidcService.getAuthorizationEndpoint())
                 .queryParam("client_id", oidcService.getClientId())
                 .queryParam("response_type", "code")
                 .queryParam("scope", oidcService.getScope().toString())
-                .queryParam("state", state.getValue())
+                .queryParam("state", state.getValue() + "." + Base64.getEncoder().encodeToString(uri.getBytes()))
                 .queryParam("redirect_uri", callback)
                 .build();
     }

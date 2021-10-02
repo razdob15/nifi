@@ -177,7 +177,7 @@ public class OidcService {
                 stateLookupForPendingRequests.invalidate(oidcRequestIdentifierKey);
             }
 
-            return state != null && IdentityProviderUtils.timeConstantEqualityCheck(state.getValue(), proposedState.getValue());
+            return state != null && IdentityProviderUtils.timeConstantEqualityCheck(state.getValue(), proposedState.getValue().split("\\.")[0]);
         }
     }
 
