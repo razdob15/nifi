@@ -174,7 +174,7 @@ public class OIDCAccessResource extends AccessResource {
                 return;
             }
 
-            // redirect to the name page
+            // Check if the state contains a redirect path and redirect to the correct page
             if (successfulOidcResponse.getState().getValue().contains(".")) {
                 String redirectPagePathBase64 = successfulOidcResponse.getState().getValue().substring(successfulOidcResponse.getState().getValue().lastIndexOf(".") + 1);
                 httpServletResponse.sendRedirect(getNiFiUri() + new String(Base64.getDecoder().decode(redirectPagePathBase64)));
@@ -182,6 +182,7 @@ public class OIDCAccessResource extends AccessResource {
                 httpServletResponse.sendRedirect(getNiFiUri());
             }
 
+            // remove the oidc request cookie
             removeOidcRequestCookie(httpServletResponse);
 
             // report the unsuccessful login
@@ -263,6 +264,7 @@ public class OIDCAccessResource extends AccessResource {
             case REVOKE_ACCESS_TOKEN_LOGOUT:
             case ID_TOKEN_LOGOUT:
                 // Make a request to the IdP
+                // In case of logout - the redirect URL should be / so we pass empty sting in the last parameter.
                 URI authorizationURI = oidcRequestAuthorizationCode(httpServletResponse, getOidcLogoutCallback(), "");
                 httpServletResponse.sendRedirect(authorizationURI.toString());
                 break;
@@ -404,22 +406,24 @@ public class OIDCAccessResource extends AccessResource {
      *
      * @param httpServletResponse the servlet response
      * @param callback the OIDC callback URI
+     * @param redirect_page_path the path to redirect after the authorization code request
      * @return the authorization URI
      */
-    private URI oidcRequestAuthorizationCode(@Context HttpServletResponse httpServletResponse, String callback, String uri) {
+    private URI oidcRequestAuthorizationCode(@Context HttpServletResponse httpServletResponse, String callback, String redirect_page_path) {
         final String oidcRequestIdentifier = UUID.randomUUID().toString();
         applicationCookieService.addCookie(getCookieResourceUri(), httpServletResponse, ApplicationCookieName.OIDC_REQUEST_IDENTIFIER, oidcRequestIdentifier);
         final State state = oidcService.createState(oidcRequestIdentifier);
 
-        if (uri.startsWith("/")) {
-            uri = uri.substring(1);
+        // Prevent double slants
+        if (redirect_page_path.startsWith("/")) {
+            redirect_page_path = redirect_page_path.substring(1);
         }
 
         return UriBuilder.fromUri(oidcService.getAuthorizationEndpoint())
                 .queryParam("client_id", oidcService.getClientId())
                 .queryParam("response_type", "code")
                 .queryParam("scope", oidcService.getScope().toString())
-                .queryParam("state", state.getValue() + "." + Base64.getEncoder().encodeToString(uri.getBytes()))
+                .queryParam("state", state.getValue() + "." + Base64.getEncoder().encodeToString(redirect_page_path.getBytes()))
                 .queryParam("redirect_uri", callback)
                 .build();
     }

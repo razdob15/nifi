@@ -175,9 +175,12 @@ public class OidcService {
             final State state = stateLookupForPendingRequests.getIfPresent(oidcRequestIdentifierKey);
             if (state != null) {
                 stateLookupForPendingRequests.invalidate(oidcRequestIdentifierKey);
+
+                // Validate the random part in the state (which is before the first dot)
+                return IdentityProviderUtils.timeConstantEqualityCheck(state.getValue(), proposedState.getValue().split("\\.")[0]);
             }
 
-            return state != null && IdentityProviderUtils.timeConstantEqualityCheck(state.getValue(), proposedState.getValue().split("\\.")[0]);
+            return false;
         }
     }
 
