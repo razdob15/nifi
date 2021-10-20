@@ -944,7 +944,9 @@
                         // there is no anonymous access and we don't know this user - open the login page which handles login/registration/etc
                         if (xhr.status === 401) {
                             nfAuthorizationStorage.removeToken();
-                            window.location = '../nifi/login';
+
+                            // Redirect to login page with a reference to the current page
+                            window.location = '../nifi/login?' + window.location.href.split('/nifi')[1];
                         } else {
                             deferred.reject(xhr, status, error);
                         }

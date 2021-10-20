@@ -65,6 +65,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.Base64;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -126,8 +127,7 @@ public class OIDCAccessResource extends AccessResource {
         }
 
         // generate the authorization uri
-        URI authorizationURI = oidcRequestAuthorizationCode(httpServletResponse, getOidcCallback());
-
+        URI authorizationURI = oidcRequestAuthorizationCode(httpServletResponse, getOidcCallback(), httpServletRequest.getQueryString());
         // generate the response
         httpServletResponse.sendRedirect(authorizationURI.toString());
     }
@@ -174,9 +174,16 @@ public class OIDCAccessResource extends AccessResource {
                 return;
             }
 
-            // redirect to the name page
-            httpServletResponse.sendRedirect(getNiFiUri());
-        } else {
+            // Check if the state contains a redirect path and redirect to the correct page
+            String stateValue = successfulOidcResponse.getState().getValue();
+            String redirectPagePath = "";
+            if (stateValue.contains(".")) {
+                String redirectPagePathBase64 = stateValue.substring(stateValue.indexOf('.') + 1);
+                redirectPagePath = new String(Base64.getDecoder().decode(redirectPagePathBase64));
+            }
+
+            httpServletResponse.sendRedirect(getNiFiUri() + redirectPagePath);
+
             // remove the oidc request cookie
             removeOidcRequestCookie(httpServletResponse);
 
@@ -259,14 +266,15 @@ public class OIDCAccessResource extends AccessResource {
             case REVOKE_ACCESS_TOKEN_LOGOUT:
             case ID_TOKEN_LOGOUT:
                 // Make a request to the IdP
-                URI authorizationURI = oidcRequestAuthorizationCode(httpServletResponse, getOidcLogoutCallback());
+                // In case of logout - the redirect URL should be / so we pass empty sting in the last parameter.
+                URI authorizationURI = oidcRequestAuthorizationCode(httpServletResponse, getOidcLogoutCallback(), "");
                 httpServletResponse.sendRedirect(authorizationURI.toString());
                 break;
             case STANDARD_LOGOUT:
             default:
                 // Get the OIDC end session endpoint
                 URI endSessionEndpoint = oidcService.getEndSessionEndpoint();
-                String postLogoutRedirectUri = generateResourceUri( "..", "nifi", "logout-complete");
+                String postLogoutRedirectUri = generateResourceUri("..", "nifi", "logout-complete");
 
                 if (endSessionEndpoint == null) {
                     httpServletResponse.sendRedirect(postLogoutRedirectUri);
@@ -399,18 +407,25 @@ public class OIDCAccessResource extends AccessResource {
      * URI using the provided callback URI.
      *
      * @param httpServletResponse the servlet response
-     * @param callback the OIDC callback URI
+     * @param callback            the OIDC callback URI
+     * @param redirect_page_path  the path to redirect after the authorization code request
      * @return the authorization URI
      */
-    private URI oidcRequestAuthorizationCode(@Context HttpServletResponse httpServletResponse, String callback) {
+    private URI oidcRequestAuthorizationCode(@Context HttpServletResponse httpServletResponse, String callback, String redirect_page_path) {
         final String oidcRequestIdentifier = UUID.randomUUID().toString();
         applicationCookieService.addCookie(getCookieResourceUri(), httpServletResponse, ApplicationCookieName.OIDC_REQUEST_IDENTIFIER, oidcRequestIdentifier);
         final State state = oidcService.createState(oidcRequestIdentifier);
+
+        // Prevent double slants
+        if (redirect_page_path.startsWith("/")) {
+            redirect_page_path = redirect_page_path.substring(1);
+        }
+
         return UriBuilder.fromUri(oidcService.getAuthorizationEndpoint())
                 .queryParam("client_id", oidcService.getClientId())
                 .queryParam("response_type", "code")
                 .queryParam("scope", oidcService.getScope().toString())
-                .queryParam("state", state.getValue())
+                .queryParam("state", state.getValue() + "." + Base64.getEncoder().encodeToString(redirect_page_path.getBytes()))
                 .queryParam("redirect_uri", callback)
                 .build();
     }
@@ -432,8 +447,8 @@ public class OIDCAccessResource extends AccessResource {
      * Sends a POST request to the revoke endpoint to log out of the ID Provider.
      *
      * @param httpServletResponse the servlet response
-     * @param accessToken the OpenID Connect Provider access token
-     * @param revokeEndpoint the name of the cookie
+     * @param accessToken         the OpenID Connect Provider access token
+     * @param revokeEndpoint      the name of the cookie
      * @throws IOException exceptional case for communication error with the OpenId Connect Provider
      */
     private void revokeEndpointRequest(@Context HttpServletResponse httpServletResponse, String accessToken, URI revokeEndpoint) throws IOException {
@@ -480,7 +495,7 @@ public class OIDCAccessResource extends AccessResource {
 
         final Optional<String> requestIdentifier = getOidcRequestIdentifier();
         if (!requestIdentifier.isPresent()) {
-            forwardToMessagePage(httpServletRequest, httpServletResponse, pageTitle,"The request identifier was " +
+            forwardToMessagePage(httpServletRequest, httpServletResponse, pageTitle, "The request identifier was " +
                     "not found in the request. Unable to continue.");
             return null;
         }
@@ -496,7 +511,7 @@ public class OIDCAccessResource extends AccessResource {
             removeOidcRequestCookie(httpServletResponse);
 
             // forward to the error page
-            forwardToMessagePage(httpServletRequest, httpServletResponse, pageTitle,"Unable to parse the redirect URI " +
+            forwardToMessagePage(httpServletRequest, httpServletResponse, pageTitle, "Unable to parse the redirect URI " +
                     "from the OpenId Connect Provider. Unable to continue login/logout process.");
             return null;
         }

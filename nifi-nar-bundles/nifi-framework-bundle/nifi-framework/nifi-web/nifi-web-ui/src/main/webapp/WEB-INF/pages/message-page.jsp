@@ -40,7 +40,7 @@
                 }).on('mouseleave', function () {
                     $(this).removeClass('link-over');
                 }).on('click', function () {
-                    window.location = '<%= contextPath %>/nifi/';
+                    window.location = '<%= contextPath %>/nifi/login?' + window.location.href.split('/nifi')[1];;
                 });
             });
         </script>

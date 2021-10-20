@@ -109,10 +109,11 @@
 
         // handle home
         $('#user-home').on('click', function () {
+            // Redirect to login page with a reference to the current page
             if (top !== window) {
-                parent.window.location = '../nifi/';
+                parent.window.location = '../nifi/login?' + window.location.href.split('/nifi')[1];
             } else {
-                window.location = '../nifi/';
+                window.location = '../nifi/login?' + window.location.href.split('/nifi')[1];
             }
         });
     });
